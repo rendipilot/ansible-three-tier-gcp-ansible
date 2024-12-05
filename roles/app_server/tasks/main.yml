@@ -1,0 +1,46 @@
+---
+- name: Install Python and Pip
+  become: true
+  apt:
+    name: 
+      - python3
+      - python3-pip
+    state: present
+    update_cache: yes
+
+- name: Install Flask
+  become: true
+  pip:
+    name: flask
+    executable: pip3
+
+- name: Copy Python Web Server Script
+  template:
+    src: app.py.j2
+    dest: /home/{{ ansible_user }}/app.py
+
+- name: Create systemd service file for Python Web Server
+  become: true
+  copy:
+    dest: /etc/systemd/system/python-web-server.service
+    content: |
+      [Unit]
+      Description=Python JSON Web Server
+      After=network.target
+
+      [Service]
+      User={{ ansible_user }}
+      WorkingDirectory=/home/{{ ansible_user }}
+      ExecStart=/usr/bin/python3 /home/{{ ansible_user }}/app.py
+
+      [Install]
+      WantedBy=multi-user.target
+
+
+- name: Ensure Web Server is Running
+  become: true
+  systemd:
+    name: python-web-server
+    state: started
+    enabled: yes
+  notify: Restart Python Web Server

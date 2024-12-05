@@ -1,0 +1,38 @@
+---
+- name: Check System Readiness
+  block:
+    - name: Wait for Cloud-Init Completion
+      wait_for:
+        path: /var/lib/cloud/instance/boot-finished
+        timeout: 600
+      become: yes
+
+    - name: Check System Services
+      systemd:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - networking
+        - systemd-networkd
+        - systemd-resolved
+      become: yes
+      register: service_status
+      ignore_errors: yes
+
+    - name: Verify Network Connectivity
+      uri:
+        url: https://www.google.com
+        timeout: 10
+      register: network_check
+      retries: 3
+      delay: 5
+      until: network_check.status == 200
+
+    - name: System Readiness Report
+      debug:
+        msg: |
+          Hostname: {{ ansible_hostname }}
+          IP Address: {{ ansible_default_ipv4.address }}
+          Cloud-Init Status: Completed
+          Network Connectivity: {{ 'Success' if network_check.status == 200 else 'Failed' }}
+          Critical Services: {{ 'All Running' if service_status.skipped is not defined else 'Some Services Failed' }}

@@ -1,0 +1,116 @@
+---
+
+# create vpc network
+# naming this vpc with  rnd_network
+- name: Create VPC Network
+  google.cloud.gcp_compute_network:
+    name: "{{ vpc_name }}"
+    auto_create_subnetworks: false
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_file: /home/rendy/.ssh/gcp.json
+    state: present
+  register: vpc_network
+
+# create subnet with 3 subnet
+- name: Create Subnets
+  google.cloud.gcp_compute_subnetwork:
+    name: "{{ item.name }}"
+    network: 
+      selfLink: "{{ vpc_network.selfLink }}"  # Wrap selfLink in a dictionary
+    ip_cidr_range: "{{ item.cidr }}"
+    region: "{{ gcp_region }}"
+    auth_kind: serviceaccount
+    service_account_file: /home/rendy/.ssh/gcp.json
+    project: "{{ gcp_project }}"
+    state: present
+  loop:
+    - { name: web-subnet, cidr: "10.0.1.0/24" }
+    - { name: app-subnet, cidr: "10.0.2.0/24" }
+    - { name: db-subnet, cidr: "10.0.3.0/24" }
+
+# create firewall for subnet
+- name: create firewall
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ item.name }}"
+    auth_kind: serviceaccount
+    project: "{{ gcp_project }}"
+    service_account_file: /home/rendy/.ssh/gcp.json
+    network:
+      selfLink: "{{ vpc_network.selfLink }}"
+    allowed:
+    - ip_protocol: tcp
+      ports: "{{ item.ports }}"
+    source_ranges: ["0.0.0.0/0"]
+    target_tags: ["{{ item.tag }}"]
+    state: present
+  loop:
+    - { name: web, ports: ["80", "443"], tag: web-tier }
+    - { name: app, ports: ["8080"], tag: app-tier }
+    - { name: db, ports: ["5432"], tag: db-tier }
+
+- name: Baca isi kunci publik SSH
+  ansible.builtin.shell: "cat {{ ssh_key_path }}"
+  register: ssh_public_key
+  changed_when: false
+    
+- name: create instance
+  google.cloud.gcp_compute_instance:
+    state: present
+    name: "{{ item.name }}"
+    machine_type: e2-micro
+    zone: "{{ item.zone }}"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_file: "/home/rendy/.ssh/gcp.json"
+    disks:
+      - auto_delete: true
+        boot: true
+        initialize_params:
+          source_image: 'projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts'
+          disk_size_gb: 10
+    network_interfaces:
+      - network:
+          selfLink: "projects/{{ gcp_project }}/global/networks/rnd-network"
+        subnetwork:
+          selfLink: "projects/{{ gcp_project }}/regions/{{ gcp_region }}/subnetworks/{{ item.subnet }}"
+        access_configs:
+          - name: "External NAT"
+            type: "ONE_TO_ONE_NAT"
+            network_tier: "STANDARD"
+    metadata:
+      ssh-keys: 'rendimana12:{{ ssh_public_key.stdout }}'
+    labels:
+      tier: "{{ item.tier }}"
+    tags: 
+      items: "{{ item.tags }}"
+  loop:
+    - { name: web-01, subnet: web-subnet, tier: web, tags: ["web-tier"], zone: asia-southeast2-a }
+    - { name: app-01, subnet: app-subnet, tier: app, tags: ["app-tier"], zone: asia-southeast2-a }
+    - { name: db-01, subnet: db-subnet, tier: database, tags: ["db-tier"], zone: asia-southeast2-a }
+
+- name: Gather instance information
+  block:
+    - name: get data
+      google.cloud.gcp_compute_instance_info:
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        zone: asia-southeast2-a
+        service_account_file: "/home/rendy/.ssh/gcp.json"
+        filters:
+        - name = "{{ item.name }}"
+      loop:
+        - { name: web-01 }
+        - { name: app-01 }
+        - { name: db-01 }
+      register: data_instance
+      until: 
+        - data_instance.resources[0].status == 'RUNNING'
+      retries: 60
+      delay: 10 
+
+    - fail:
+          msg: "instance not running in vm"
+      when: (data_instance.results[0].resources[0].status != 'RUNNING') and 
+            (data_instance.results[1].resources[0].status != 'RUNNING') and
+            (data_instance.results[2].resources[0].status != 'RUNNING')

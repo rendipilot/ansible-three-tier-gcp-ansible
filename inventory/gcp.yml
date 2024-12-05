@@ -1,0 +1,9 @@
+plugin: gcp_compute
+zones:
+  - asia-southeast2-a
+  - asia-southeast2-b
+keyed_groups:
+  - key: labels.tier
+    prefix: tier_
+filters:
+  - labels.environment = production

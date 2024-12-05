@@ -1,0 +1,28 @@
+# - hosts: localhost
+#   vars:
+#     gcp_project: ansible-rnd-project
+#     gcp_region: asia-southeast2
+#     vpc_name: rnd-network
+#     ssh_key_path: '/home/rendy/.ssh/gcp_key.pub'
+#   roles:
+#     - gcp_infrastructure
+
+# - hosts: localhost
+#   roles:
+#     - instance_readiness
+
+# - hosts: tier_web
+#   become: true
+#   roles:
+#     - web_server
+      
+
+# - hosts: tier_app
+#   become: true
+#   roles:
+#     - app_server
+
+- hosts: tier_db
+  become: true
+  roles:
+    - db_server

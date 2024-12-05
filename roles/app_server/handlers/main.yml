@@ -1,0 +1,6 @@
+---
+- name: Restart Python Web Server
+  become: true
+  systemd:
+    name: python-web-server
+    state: restarted
